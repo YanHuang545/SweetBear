@@ -1,10 +1,12 @@
 <template>
   <AppShell>
-    <section class="panel">
-      <div class="mascot">🐻</div>
-      <h1>{{ nick }} 的熊窝</h1>
-      <p class="meta">登录态来自你贴进来的 Cookie，不是扫码。</p>
-      <button class="btn ghost" @click="logout">抽出钥匙离开</button>
+    <PageBack />
+    <section class="panel profile-card">
+      <div class="page-head">
+        <h1>我的</h1>
+        <p class="meta">在这里退出后需要重新粘贴 Cookie 才能搜索。</p>
+      </div>
+      <button class="btn ghost" @click="logout">退出登录</button>
     </section>
   </AppShell>
 </template>
@@ -12,10 +14,10 @@
 <script setup>
 import { useRouter } from "vue-router";
 import AppShell from "../layouts/AppShell.vue";
-import { clearCookie, nickFromCookie } from "../session";
+import PageBack from "../components/PageBack.vue";
+import { clearCookie } from "../session";
 
 const router = useRouter();
-const nick = nickFromCookie();
 
 function logout() {
   clearCookie();

@@ -1,9 +1,11 @@
 <template>
   <AppShell>
     <section class="panel">
-      <h1>今日糖纸</h1>
-      <p class="meta">横着逛，不像闲鱼那样一排排往下掉。</p>
-      <div class="chips" style="margin-top: 14px">
+      <div class="page-head">
+        <h1>今日城堡橱窗</h1>
+        <p class="meta">从闲鱼取来的新鲜闲置，点一下就能去找同类宝贝。</p>
+      </div>
+      <div class="chips">
         <button v-for="chip in chips" :key="chip" class="chip" @click="openSearch(chip)">
           {{ chip }}
         </button>
@@ -12,12 +14,18 @@
 
     <section class="shelf">
       <div class="shelf-head">
-        <h2>新鲜出炉</h2>
-        <router-link class="meta" to="/search?q=数码">整条货架 →</router-link>
+        <h2>新到货架</h2>
+        <router-link to="/search?q=数码">查看全部</router-link>
       </div>
       <p v-if="error" class="error">{{ error }}</p>
-      <div v-else class="row">
-        <CandyCard v-for="item in items" :key="item.id" :item="item" @open="openItem" />
+      <div v-else class="grid">
+        <CandyCard
+          v-for="(item, index) in items"
+          :key="item.id"
+          :item="item"
+          :priority="index < 10"
+          @open="openItem"
+        />
       </div>
     </section>
   </AppShell>
@@ -29,7 +37,7 @@ import { useRouter } from "vue-router";
 import AppShell from "../layouts/AppShell.vue";
 import CandyCard from "../components/CandyCard.vue";
 import { searchItems } from "../api";
-import { getCookie, saveItem } from "../session";
+import { getCookie, saveItem, saveLastSearch } from "../session";
 
 const router = useRouter();
 const items = ref([]);
@@ -41,6 +49,7 @@ function openSearch(q) {
 }
 
 function openItem(item) {
+  saveLastSearch("数码");
   saveItem(item);
   router.push(`/item/${item.id}`);
 }
@@ -48,7 +57,7 @@ function openItem(item) {
 onMounted(async () => {
   try {
     const result = await searchItems(getCookie(), "数码", 1);
-    items.value = result.items.slice(0, 12);
+    items.value = result.items.slice(0, 10);
   } catch (err) {
     error.value = err.message;
   }

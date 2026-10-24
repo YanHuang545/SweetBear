@@ -1,57 +1,94 @@
 <template>
   <AppShell>
-    <article v-if="item" class="panel" style="display: grid; grid-template-columns: 1.1fr 1fr; gap: 28px">
-      <img v-if="item.picUrl" :src="item.picUrl" :alt="item.title" style="border-radius: 28px" />
-      <div v-else class="ph" style="height: 320px; border-radius: 28px">🍬</div>
-      <div>
-        <p class="meta">{{ item.area }}</p>
+    <PageBack />
+    <article v-if="item" class="item-page">
+      <div class="item-cover">
+        <img
+          v-if="item.picUrl"
+          :src="cover"
+          :alt="item.title"
+          decoding="async"
+          fetchpriority="high"
+          referrerpolicy="no-referrer"
+          @error="cover = item.picUrl"
+        />
+        <div v-else class="ph">无图</div>
+      </div>
+      <div class="item-info">
+        <p class="meta">{{ item.area || "未知地区" }}</p>
         <h1>{{ item.title }}</h1>
         <div class="price">¥ {{ item.price }}</div>
-        <p>这张糖纸来自寻宝货架。想聊价就去「纸条」，想收下就丢进「口袋」。</p>
-        <div style="display: flex; gap: 10px; margin-top: 18px">
-          <button class="btn" @click="want">我想要</button>
-          <button class="btn mint" @click="bag">放进口袋</button>
+        <p v-if="notice" class="notice">
+          {{ notice.text }}
+          <router-link :to="notice.to">{{ notice.link }}</router-link>
+        </p>
+        <div class="item-actions">
+          <button class="btn" @click="want"><Icon name="heart" />我想要</button>
+          <button class="btn ghost" @click="bag"><Icon name="bag" />加入订单</button>
         </div>
       </div>
     </article>
-    <p v-else class="error">找不到这张糖纸，先回货架再点一次。</p>
+    <div v-else>
+      <p class="error">找不到这件商品，请从列表重新点开。</p>
+      <PageBack to="/search" label="返回搜索" />
+    </div>
   </AppShell>
 </template>
 
 <script setup>
-import { computed } from "vue";
-import { useRoute, useRouter } from "vue-router";
+import { computed, ref, watch } from "vue";
+import { useRoute } from "vue-router";
 import AppShell from "../layouts/AppShell.vue";
+import PageBack from "../components/PageBack.vue";
+import Icon from "../components/Icon.vue";
+import { thumbUrl } from "../image";
 import { loadItem, loadList, saveList } from "../session";
 
 const route = useRoute();
-const router = useRouter();
+const notice = ref(null);
 const item = computed(() => {
   const saved = loadItem();
   if (saved && String(saved.id) === String(route.params.id)) return saved;
   return null;
 });
+const cover = ref("");
+watch(
+  item,
+  (value) => {
+    cover.value = value?.picUrl ? thumbUrl(value.picUrl, 800) : "";
+  },
+  { immediate: true },
+);
+
+function shortTitle(title) {
+  const text = title || "商品";
+  return text.length > 28 ? text.slice(0, 28) + "…" : text;
+}
 
 function want() {
+  if (!item.value) return;
   const messages = loadList("tianxiong.messages", []);
   messages.unshift({
     id: Date.now(),
-    title: "我想要：" + (item.value?.title || ""),
-    body: "已向糖纸对面丢了一张纸条（本地演示）。",
+    itemId: item.value.id,
+    title: shortTitle(item.value.title),
+    body: "已发送我想要",
   });
   saveList("tianxiong.messages", messages);
-  router.push("/messages");
+  notice.value = { text: "已记下，还在这件商品上。", link: "去看消息", to: "/messages" };
 }
 
 function bag() {
+  if (!item.value) return;
   const orders = loadList("tianxiong.orders", []);
   orders.unshift({
     id: Date.now(),
-    title: item.value?.title,
-    price: item.value?.price,
-    status: "待当面核糖",
+    itemId: item.value.id,
+    title: shortTitle(item.value.title),
+    price: item.value.price,
+    status: "待确认",
   });
   saveList("tianxiong.orders", orders);
-  router.push("/orders");
+  notice.value = { text: "已加入本地订单。", link: "去看订单", to: "/orders" };
 }
 </script>

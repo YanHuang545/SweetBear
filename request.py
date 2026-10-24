@@ -5,6 +5,16 @@ import time
 
 import requests
 
+try:
+    import urllib3.util.connection as urllib3_conn
+
+    urllib3_conn.HAS_IPV6 = False
+except Exception:
+    pass
+
+HTTP = requests.Session()
+HTTP.headers.update({"Connection": "keep-alive"})
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -112,28 +122,39 @@ def search_page(cookie_string, keyword, page_number=1, rows_per_page=30):
     t = str(int(time.time() * 1000))
     data_str = json.dumps(search_data, ensure_ascii=False, separators=(",", ":"))
     sign = hashlib.md5(f"{token}&{t}&{APP_KEY}&{data_str}".encode("utf-8")).hexdigest()
-    payload = requests.post(
-        URL,
-        cookies={
-            "cookie2": cookies["cookie2"],
-            "_m_h5_tk": cookies["_m_h5_tk"],
-            "_m_h5_tk_enc": cookies["_m_h5_tk_enc"],
-        },
-        params={
-            "appKey": APP_KEY,
-            "t": t,
-            "sign": sign,
-            "spm_cnt": "a21ybx.search.0.0",
-            "spm_pre": "a21ybx.search.searchInput.0",
-        },
-        data={
-            "data": data_str,
-            "bx-ua": BX_UA,
-            "bx-umidtoken": BX_UMIDTOKEN,
-            "bx_et": BX_ET,
-        },
-        timeout=20,
-    ).json()
+    last_error = None
+    payload = None
+    for attempt in range(2):
+        try:
+            payload = HTTP.post(
+                URL,
+                cookies={
+                    "cookie2": cookies["cookie2"],
+                    "_m_h5_tk": cookies["_m_h5_tk"],
+                    "_m_h5_tk_enc": cookies["_m_h5_tk_enc"],
+                },
+                params={
+                    "appKey": APP_KEY,
+                    "t": t,
+                    "sign": sign,
+                    "spm_cnt": "a21ybx.search.0.0",
+                    "spm_pre": "a21ybx.search.searchInput.0",
+                },
+                data={
+                    "data": data_str,
+                    "bx-ua": BX_UA,
+                    "bx-umidtoken": BX_UMIDTOKEN,
+                    "bx_et": BX_ET,
+                },
+                timeout=(3, 12),
+            ).json()
+            break
+        except requests.RequestException as exc:
+            last_error = exc
+            if attempt == 0:
+                time.sleep(0.2)
+    if payload is None:
+        raise last_error
     ret = payload.get("ret") or []
     items = [parse_item(card) for card in (payload.get("data") or {}).get("resultList") or []]
     for item in items:
@@ -147,6 +168,26 @@ def search_page(cookie_string, keyword, page_number=1, rows_per_page=30):
         "pageNumber": int(page_number),
         "items": items,
     }
+
+
+def describe_error(exc):
+    text = str(exc)
+    if any(key in text for key in ("NameResolutionError", "getaddrinfo failed", "Failed to resolve")):
+        return "连不上闲鱼接口，域名解析失败。检查网络后点再试一次。"
+    if any(key in text.lower() for key in ("max retries", "connection", "timed out", "timeout")):
+        return "闲鱼接口暂时连不上，过几秒再搜一次。"
+    return "搜索失败，请稍后再试。"
+
+
+def describe_ret(ret):
+    text = str((ret or [""])[0])
+    if "TOKEN_EXOIRED" in text or "TOKEN_EXPIRED" in text:
+        return "闲鱼令牌过期，请到 www.goofish.com 重新复制整段 Cookie 再贴进来"
+    if "TOKEN_EMPTY" in text:
+        return "Cookie 里缺少有效的 _m_h5_tk"
+    if "RGV587" in text:
+        return "闲鱼风控拦了一下，换一份刚复制的 Cookie 或稍后再试"
+    return text
 
 
 def print_cli():
@@ -179,8 +220,13 @@ def serve():
         cookie = (body.get("cookie") or "").strip()
         try:
             parsed = parse_cookie_string(cookie)
+            probe = search_page(cookie, "数码", 1)
         except CookieError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
+        except Exception as exc:
+            return jsonify({"ok": False, "error": describe_error(exc)}), 502
+        if not probe["ok"]:
+            return jsonify({"ok": False, "error": describe_ret(probe["ret"]), "ret": probe["ret"]}), 401
         return jsonify({"ok": True, "nick": parsed["tracknick"]})
 
     @app.post("/api/search")
@@ -196,10 +242,12 @@ def serve():
         except CookieError as exc:
             return jsonify({"ok": False, "error": str(exc)}), 400
         except Exception as exc:
-            return jsonify({"ok": False, "error": str(exc)}), 502
+            return jsonify({"ok": False, "error": describe_error(exc)}), 502
+        if not result["ok"]:
+            result = {**result, "error": describe_ret(result["ret"])}
         return jsonify(result), (200 if result["ok"] else 400)
 
-    app.run(host="127.0.0.1", port=8787, debug=False)
+    app.run(host="127.0.0.1", port=8787, debug=False, threaded=True)
 
 
 if __name__ == "__main__":
